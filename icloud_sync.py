@@ -11,6 +11,7 @@ from icloud_photo_backup.paths import build_output_dir, parse_created_at, unique
 from icloud_photo_backup.sync import (
     cleanup_stale_parts,
     download_asset,
+    format_bytes,
     get_asset_filename,
     get_asset_id,
     is_video_asset,
@@ -25,6 +26,7 @@ __all__ = [
     "cleanup_stale_parts",
     "download_asset",
     "ensure_schema",
+    "format_bytes",
     "get_asset_filename",
     "get_asset_id",
     "init_db",

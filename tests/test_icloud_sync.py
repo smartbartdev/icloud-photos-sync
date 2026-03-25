@@ -3,6 +3,7 @@ from pathlib import Path
 
 from icloud_sync import (
     build_output_dir,
+    format_bytes,
     init_db,
     is_downloaded,
     mark_downloaded,
@@ -63,3 +64,9 @@ def test_stream_to_file_handles_bytes(tmp_path: Path) -> None:
     size = stream_to_file(b"hello", output)
     assert size == 5
     assert output.read_bytes() == b"hello"
+
+
+def test_format_bytes_human_readable() -> None:
+    assert format_bytes(900) == "900 B"
+    assert format_bytes(1536) == "1.5 KB"
+    assert format_bytes(1024 * 1024) == "1.0 MB"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import sqlite3
+import sys
 import time
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -24,6 +25,82 @@ VIDEO_EXTENSIONS = {
     ".mpg",
     ".webm",
 }
+
+SPINNER_FRAMES = ("|", "/", "-", "\\")
+
+
+def format_bytes(num_bytes: int) -> str:
+    """Return a human-readable byte size string."""
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+
+    units = ("KB", "MB", "GB", "TB")
+    value = float(num_bytes)
+    for unit in units:
+        value /= 1024.0
+        if value < 1024.0:
+            return f"{value:.1f} {unit}"
+    return f"{value:.1f} PB"
+
+
+class LiveSyncProgress:
+    """Render a single-line live progress indicator in TTY sessions."""
+
+    def __init__(self, *, enabled: bool) -> None:
+        self.enabled = enabled and sys.stdout.isatty()
+        self._frame_index = 0
+        self._line_len = 0
+        self._started_at = time.monotonic()
+        self._last_downloaded_bytes = 0
+
+    def render(
+        self,
+        *,
+        downloaded_bytes: int,
+        photos: int,
+        videos: int,
+        skipped: int,
+        failed: int,
+    ) -> None:
+        """Render or update the live progress line."""
+        if not self.enabled:
+            return
+
+        elapsed_seconds = max(time.monotonic() - self._started_at, 0.001)
+        displayed_downloaded_bytes = max(downloaded_bytes, self._last_downloaded_bytes)
+        self._last_downloaded_bytes = displayed_downloaded_bytes
+        bytes_per_second = int(displayed_downloaded_bytes / elapsed_seconds)
+        spinner = SPINNER_FRAMES[self._frame_index % len(SPINNER_FRAMES)]
+        self._frame_index += 1
+
+        line = (
+            f"[{spinner}] Downloaded: {format_bytes(displayed_downloaded_bytes)} "
+            f"/ {photos} Photos / {videos} Videos "
+            f"| Skipped: {skipped} | Failed: {failed} "
+            f"| Rate: {format_bytes(bytes_per_second)}/s"
+        )
+        padding = " " * max(self._line_len - len(line), 0)
+        sys.stdout.write(f"\r{line}{padding}")
+        sys.stdout.flush()
+        self._line_len = len(line)
+
+    def clear_line(self) -> None:
+        """Clear active live line before standard log output."""
+        if not self.enabled or self._line_len == 0:
+            return
+
+        sys.stdout.write(f"\r{' ' * self._line_len}\r")
+        sys.stdout.flush()
+        self._line_len = 0
+
+    def finish(self) -> None:
+        """End the live renderer and move to the next line."""
+        if not self.enabled:
+            return
+        if self._line_len > 0:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._line_len = 0
 
 
 def get_asset_id(asset: Any) -> Optional[str]:
@@ -217,6 +294,10 @@ def run_sync(
     skipped_count = 0
     failed_count = 0
     processed = 0
+    downloaded_bytes = 0
+    downloaded_photos = 0
+    downloaded_videos = 0
+    progress = LiveSyncProgress(enabled=not dry_run)
 
     try:
         if not dry_run:
@@ -235,12 +316,28 @@ def run_sync(
 
             if not asset_id:
                 failed_count += 1
+                progress.clear_line()
                 logger.warning("Failed: missing asset ID")
+                progress.render(
+                    downloaded_bytes=downloaded_bytes,
+                    photos=downloaded_photos,
+                    videos=downloaded_videos,
+                    skipped=skipped_count,
+                    failed=failed_count,
+                )
                 continue
 
             if not filename:
                 failed_count += 1
+                progress.clear_line()
                 logger.warning("Failed: asset %s has no filename metadata", asset_id)
+                progress.render(
+                    downloaded_bytes=downloaded_bytes,
+                    photos=downloaded_photos,
+                    videos=downloaded_videos,
+                    skipped=skipped_count,
+                    failed=failed_count,
+                )
                 continue
 
             media_type = detect_media_type(asset, filename)
@@ -248,7 +345,15 @@ def run_sync(
             if is_downloaded(conn, asset_id):
                 skipped_count += 1
                 if verbose:
+                    progress.clear_line()
                     logger.info("Skipping already downloaded: %s", filename)
+                progress.render(
+                    downloaded_bytes=downloaded_bytes,
+                    photos=downloaded_photos,
+                    videos=downloaded_videos,
+                    skipped=skipped_count,
+                    failed=failed_count,
+                )
                 continue
 
             output_dir = build_output_dir(target_dir, created_at)
@@ -271,10 +376,40 @@ def run_sync(
                     status="downloaded",
                 )
                 downloaded_count += 1
-                logger.info("Downloaded: %s", final_path)
+                downloaded_bytes += size
+                if media_type == "video":
+                    downloaded_videos += 1
+                else:
+                    downloaded_photos += 1
+                progress.render(
+                    downloaded_bytes=downloaded_bytes,
+                    photos=downloaded_photos,
+                    videos=downloaded_videos,
+                    skipped=skipped_count,
+                    failed=failed_count,
+                )
+
+                if verbose:
+                    progress.clear_line()
+                    logger.info("Downloaded file: %s", final_path)
+                    progress.render(
+                        downloaded_bytes=downloaded_bytes,
+                        photos=downloaded_photos,
+                        videos=downloaded_videos,
+                        skipped=skipped_count,
+                        failed=failed_count,
+                    )
             except Exception as exc:  # noqa: BLE001
                 failed_count += 1
+                progress.clear_line()
                 logger.error("Failed: %s (%s)", filename, exc)
+                progress.render(
+                    downloaded_bytes=downloaded_bytes,
+                    photos=downloaded_photos,
+                    videos=downloaded_videos,
+                    skipped=skipped_count,
+                    failed=failed_count,
+                )
 
         set_meta(conn, "last_sync_at", dt.datetime.now(dt.timezone.utc).isoformat())
         set_meta(conn, "last_sync_downloaded", str(downloaded_count))
@@ -282,6 +417,7 @@ def run_sync(
         set_meta(conn, "last_sync_failed", str(failed_count))
 
     finally:
+        progress.finish()
         conn.close()
 
     logger.info("\nDone.")
