@@ -1,7 +1,14 @@
 import datetime as dt
 from pathlib import Path
 
-from icloud_sync import build_output_dir, init_db, is_downloaded, mark_downloaded, unique_path
+from icloud_sync import (
+    build_output_dir,
+    init_db,
+    is_downloaded,
+    mark_downloaded,
+    stream_to_file,
+    unique_path,
+)
 
 
 def test_unique_path_returns_original_when_unused(tmp_path: Path) -> None:
@@ -49,3 +56,10 @@ def test_db_insert_and_lookup(tmp_path: Path) -> None:
         assert is_downloaded(conn, "asset-1") is True
     finally:
         conn.close()
+
+
+def test_stream_to_file_handles_bytes(tmp_path: Path) -> None:
+    output = tmp_path / "asset.bin"
+    size = stream_to_file(b"hello", output)
+    assert size == 5
+    assert output.read_bytes() == b"hello"
