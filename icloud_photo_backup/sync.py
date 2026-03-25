@@ -1,0 +1,277 @@
+from __future__ import annotations
+
+import datetime as dt
+import logging
+import sqlite3
+import time
+from pathlib import Path
+from typing import Any, Iterable, Optional
+
+from .auth import login_icloud
+from .db import ensure_schema, init_db, is_downloaded, mark_downloaded, set_meta
+from .logging_utils import setup_logging
+from .paths import build_output_dir, log_file_path, parse_created_at, unique_path, validate_target_dir
+
+
+VIDEO_EXTENSIONS = {
+    ".3gp",
+    ".avi",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".webm",
+}
+
+
+def get_asset_id(asset: Any) -> Optional[str]:
+    """Extract stable unique id from asset metadata."""
+    for field in ("id", "asset_id", "uuid", "guid"):
+        value = getattr(asset, field, None)
+        if value:
+            return str(value)
+    return None
+
+
+def get_asset_filename(asset: Any) -> Optional[str]:
+    """Extract filename from asset metadata."""
+    for field in ("filename", "name"):
+        value = getattr(asset, field, None)
+        if value:
+            return str(value)
+    return None
+
+
+def is_video_asset(asset: Any, filename: Optional[str]) -> bool:
+    """Best-effort video detection using metadata and extension."""
+    for field in ("item_type", "media_type", "type"):
+        value = getattr(asset, field, None)
+        if isinstance(value, str) and "video" in value.lower():
+            return True
+
+    if filename:
+        ext = Path(filename).suffix.lower()
+        if ext in VIDEO_EXTENSIONS:
+            return True
+    return False
+
+
+def detect_media_type(asset: Any, filename: Optional[str]) -> str:
+    """Return best-effort media type value."""
+    for field in ("item_type", "media_type", "type"):
+        value = getattr(asset, field, None)
+        if isinstance(value, str) and value:
+            lowered = value.lower()
+            if "video" in lowered:
+                return "video"
+            if "photo" in lowered or "image" in lowered:
+                return "photo"
+
+    if is_video_asset(asset, filename):
+        return "video"
+    return "photo"
+
+
+def iter_assets(api: Any, after: Optional[dt.date], skip_videos: bool) -> Iterable[Any]:
+    """Yield assets from iCloud Photos with optional filtering."""
+    photos = getattr(api, "photos", None)
+    if photos is None:
+        raise RuntimeError("iCloud Photos is unavailable for this account.")
+
+    album = photos.all
+    for asset in album:
+        created_at = parse_created_at(getattr(asset, "created", None))
+
+        if after is not None:
+            if created_at is None or created_at.date() < after:
+                continue
+
+        filename = get_asset_filename(asset)
+        if skip_videos and is_video_asset(asset, filename):
+            continue
+
+        yield asset
+
+
+def stream_to_file(response: Any, output_path: Path) -> int:
+    """Write downloaded response to file and return bytes written."""
+    written = 0
+    with output_path.open("wb") as fh:
+        if hasattr(response, "iter_content"):
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                written += len(chunk)
+            return written
+
+        raw = getattr(response, "raw", None)
+        if raw is not None and hasattr(raw, "stream"):
+            for chunk in raw.stream(1024 * 1024, decode_content=False):
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                written += len(chunk)
+            return written
+
+        content = getattr(response, "content", None)
+        if content is not None:
+            fh.write(content)
+            return len(content)
+
+    raise RuntimeError("Download response did not contain readable binary data.")
+
+
+def download_asset(
+    asset: Any,
+    destination_dir: Path,
+    filename: str,
+    retries: int = 3,
+    retry_delay_seconds: float = 2.0,
+) -> tuple[Path, int]:
+    """Download one iCloud asset with retries and atomic rename."""
+    destination_dir.mkdir(parents=True, exist_ok=True)
+
+    final_path = unique_path(destination_dir / filename)
+    temp_path = final_path.with_name(final_path.name + ".part")
+    temp_path.unlink(missing_ok=True)
+
+    last_error: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = asset.download()
+            bytes_written = stream_to_file(response, temp_path)
+            temp_path.replace(final_path)
+            return final_path, bytes_written
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            temp_path.unlink(missing_ok=True)
+            if attempt < retries:
+                time.sleep(retry_delay_seconds)
+
+    raise RuntimeError(f"Download failed after {retries} attempts: {last_error}")
+
+
+def cleanup_stale_parts(target_dir: Path, logger: logging.Logger) -> None:
+    """Remove stale .part files from previous interrupted runs."""
+    removed = 0
+    for part_file in target_dir.rglob("*.part"):
+        try:
+            part_file.unlink()
+            removed += 1
+        except OSError:
+            continue
+
+    if removed:
+        logger.info("Removed %s stale .part file(s).", removed)
+
+
+def run_sync(
+    *,
+    target_dir: Path,
+    db_path: Path,
+    dry_run: bool,
+    limit: Optional[int],
+    verbose: bool,
+    after: Optional[dt.date],
+    skip_videos: bool,
+    username: str,
+    password: Optional[str],
+    app_log_file: Optional[Path] = None,
+) -> int:
+    """Run incremental sync and return process exit code."""
+    validate_target_dir(target_dir)
+    logger = setup_logging(app_log_file or log_file_path(), verbose)
+
+    logger.info("Using destination: %s", target_dir)
+
+    api = login_icloud(username or "", password, logger)
+
+    if dry_run:
+        if db_path.exists():
+            conn = sqlite3.connect(db_path)
+            ensure_schema(conn)
+        else:
+            conn = sqlite3.connect(":memory:")
+            ensure_schema(conn)
+    else:
+        conn = init_db(db_path)
+
+    downloaded_count = 0
+    skipped_count = 0
+    failed_count = 0
+    processed = 0
+
+    try:
+        if not dry_run:
+            cleanup_stale_parts(target_dir, logger)
+
+        logger.info("\nScanning iCloud Photos...")
+        for asset in iter_assets(api, after=after, skip_videos=skip_videos):
+            if limit is not None and processed >= limit:
+                break
+
+            processed += 1
+
+            asset_id = get_asset_id(asset)
+            filename = get_asset_filename(asset)
+            created_at = parse_created_at(getattr(asset, "created", None))
+
+            if not asset_id:
+                failed_count += 1
+                logger.warning("Failed: missing asset ID")
+                continue
+
+            if not filename:
+                failed_count += 1
+                logger.warning("Failed: asset %s has no filename metadata", asset_id)
+                continue
+
+            media_type = detect_media_type(asset, filename)
+
+            if is_downloaded(conn, asset_id):
+                skipped_count += 1
+                if verbose:
+                    logger.info("Skipping already downloaded: %s", filename)
+                continue
+
+            output_dir = build_output_dir(target_dir, created_at)
+            if dry_run:
+                planned = unique_path(output_dir / filename)
+                logger.info("[DRY-RUN] Would download: %s", planned)
+                downloaded_count += 1
+                continue
+
+            try:
+                final_path, size = download_asset(asset, output_dir, filename)
+                mark_downloaded(
+                    conn,
+                    asset_id=asset_id,
+                    filename=final_path.name,
+                    local_path=final_path,
+                    created_at=created_at,
+                    file_size=size,
+                    media_type=media_type,
+                    status="downloaded",
+                )
+                downloaded_count += 1
+                logger.info("Downloaded: %s", final_path)
+            except Exception as exc:  # noqa: BLE001
+                failed_count += 1
+                logger.error("Failed: %s (%s)", filename, exc)
+
+        set_meta(conn, "last_sync_at", dt.datetime.now(dt.timezone.utc).isoformat())
+        set_meta(conn, "last_sync_downloaded", str(downloaded_count))
+        set_meta(conn, "last_sync_skipped", str(skipped_count))
+        set_meta(conn, "last_sync_failed", str(failed_count))
+
+    finally:
+        conn.close()
+
+    logger.info("\nDone.")
+    logger.info("Downloaded: %s", downloaded_count)
+    logger.info("Skipped: %s", skipped_count)
+    logger.info("Failed: %s", failed_count)
+    return 0
