@@ -99,6 +99,10 @@ def stream_to_file(response: Any, output_path: Path) -> int:
     """Write downloaded response to file and return bytes written."""
     written = 0
     with output_path.open("wb") as fh:
+        if isinstance(response, (bytes, bytearray)):
+            fh.write(response)
+            return len(response)
+
         if hasattr(response, "iter_content"):
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if not chunk:
@@ -121,6 +125,14 @@ def stream_to_file(response: Any, output_path: Path) -> int:
             fh.write(content)
             return len(content)
 
+        if hasattr(response, "read"):
+            content = response.read()
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            if content:
+                fh.write(content)
+                return len(content)
+
     raise RuntimeError("Download response did not contain readable binary data.")
 
 
@@ -142,6 +154,8 @@ def download_asset(
     for attempt in range(1, retries + 1):
         try:
             response = asset.download()
+            if response is None:
+                raise RuntimeError("Asset returned no downloadable data.")
             bytes_written = stream_to_file(response, temp_path)
             temp_path.replace(final_path)
             return final_path, bytes_written
