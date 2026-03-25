@@ -136,6 +136,18 @@ File log path:
 
 Includes timestamps, errors, and sync summary.
 
+## CI
+
+GitHub Actions CI is defined in `.github/workflows/ci.yml`.
+
+It runs on pushes to `main` and on pull requests, and it currently:
+
+- tests Python `3.10`, `3.11`, and `3.12`
+- runs on `macos-latest` and `ubuntu-latest`
+- installs the package with dev dependencies
+- verifies Python files compile
+- runs `pytest -q`
+
 ## Tests
 
 ```bash
