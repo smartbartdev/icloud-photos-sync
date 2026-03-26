@@ -175,3 +175,12 @@ make smoke
 ```
 
 `make smoke` prints a manual operator checklist for a quick real-world sanity pass.
+
+## Open source
+
+- License: `MIT` (see `LICENSE`)
+- Contributing guide: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Security reporting: `SECURITY.md`
+- Changelog: `CHANGELOG.md`
+- Release checklist: `docs/release.md`
