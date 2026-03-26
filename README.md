@@ -2,6 +2,13 @@
 
 [![CI](https://github.com/smartbartdev/icloud-photos-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/smartbartdev/icloud-photos-sync/actions/workflows/ci.yml)
 [![Homebrew Tap](https://img.shields.io/badge/homebrew-smartbartdev%2Ftap-blue?logo=homebrew)](https://github.com/smartbartdev/homebrew-tap)
+[![Latest Release](https://img.shields.io/github/v/release/smartbartdev/icloud-photos-sync)](https://github.com/smartbartdev/icloud-photos-sync/releases/latest)
+
+## Release Dashboard
+
+- Latest release: `https://github.com/smartbartdev/icloud-photos-sync/releases/latest`
+- Homebrew formula: `https://github.com/smartbartdev/homebrew-tap/blob/master/Formula/ipb.rb`
+- Homebrew bump automation runs: `https://github.com/smartbartdev/icloud-photos-sync/actions/workflows/homebrew-bump.yml`
 
 `ipb` is a Python CLI for incremental iCloud Photos backup on macOS.
 

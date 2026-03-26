@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.1] - 2026-03-26
+
+### Added
+
+- Added release automation workflow to open Homebrew formula bump PRs in `smartbartdev/homebrew-tap` on published releases.
+- Added operations runbook (`docs/operations.md`) with automation setup, manual fallback, and rollback guidance.
+- Added launch template (`docs/launch.md`) and public roadmap (`docs/roadmap.md`).
+
+### Changed
+
+- Hardened Homebrew bump workflow update logic for `Formula/ipb.rb` URL/SHA updates across formatting variations.
+- Improved idempotency by skipping duplicate PR creation when an open bump PR already exists.
+- Expanded release docs and README links for release and operations visibility.
+
 ## [0.1.0] - 2026-03-26
 
 ### Added
