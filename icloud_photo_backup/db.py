@@ -117,3 +117,17 @@ def get_downloaded_count(conn: sqlite3.Connection) -> int:
     if row is None:
         return 0
     return int(row[0])
+
+
+def get_latest_downloaded_created_at(conn: sqlite3.Connection) -> Optional[str]:
+    """Return latest non-null created_at value from downloaded assets."""
+    row = conn.execute(
+        """
+        SELECT MAX(created_at)
+        FROM downloaded_assets
+        WHERE status = 'downloaded' AND created_at IS NOT NULL
+        """
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return str(row[0])
