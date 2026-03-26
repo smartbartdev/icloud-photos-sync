@@ -1,5 +1,8 @@
 # iCloud Photo Backup (`ipb`)
 
+[![CI](https://github.com/smartbartdev/icloud-photos-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/smartbartdev/icloud-photos-sync/actions/workflows/ci.yml)
+[![Homebrew Tap](https://img.shields.io/badge/homebrew-smartbartdev%2Ftap-blue?logo=homebrew)](https://github.com/smartbartdev/homebrew-tap)
+
 `ipb` is a Python CLI for incremental iCloud Photos backup on macOS.
 
 It downloads new photo/video assets into a destination folder, tracks downloaded
@@ -27,6 +30,13 @@ pip install -e .
 ```
 
 After editable install, the `ipb` command is available in the active venv.
+
+Install with Homebrew (recommended for end users):
+
+```bash
+brew tap smartbartdev/tap
+brew install smartbartdev/tap/ipb
+```
 
 ## First-time setup
 
@@ -184,3 +194,6 @@ make smoke
 - Security reporting: `SECURITY.md`
 - Changelog: `CHANGELOG.md`
 - Release checklist: `docs/release.md`
+- Launch notes template: `docs/launch.md`
+- Roadmap: `docs/roadmap.md`
+- Operations runbook: `docs/operations.md`

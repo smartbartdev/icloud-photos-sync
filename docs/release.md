@@ -38,6 +38,8 @@ git push origin main --tags
 - Create a release from tag `v0.1.0`
 - Use changelog content for release notes
 - Confirm source archive is available for Homebrew formula use
+- Bump tap formula using `homebrew-tap/scripts/bump_ipb_formula.py` with the new tag and SHA
+- If automation fails, follow fallback steps in `docs/operations.md`
 
 ## 5) Post-release checks
 
@@ -55,4 +57,12 @@ ipb init
 ipb doctor
 ipb sync --dry-run --limit 5
 ipb status
+```
+
+- Validate Homebrew installation on a clean environment:
+
+```bash
+brew tap smartbartdev/tap
+brew install smartbartdev/tap/ipb
+ipb --help
 ```

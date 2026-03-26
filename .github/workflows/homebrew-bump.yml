@@ -1,0 +1,142 @@
+name: Bump Homebrew Formula
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (example: v0.1.1)"
+        required: true
+
+jobs:
+  bump-homebrew:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      TAP_REPO: smartbartdev/homebrew-tap
+      FORMULA_PATH: Formula/ipb.rb
+
+    steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "No release tag provided." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Compute source archive SHA256
+        id: sha
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          curl -L "$URL" -o source.tar.gz
+          SHA=$(sha256sum source.tar.gz | cut -d ' ' -f 1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure tap token is configured
+        run: |
+          if [ -z "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "Missing required secret HOMEBREW_TAP_TOKEN" >&2
+            exit 1
+          fi
+
+      - name: Clone tap repository
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          gh repo clone "$TAP_REPO" tap-repo
+
+      - name: Update formula source and hash
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          formula_path = Path("tap-repo") / "Formula" / "ipb.rb"
+          text = formula_path.read_text(encoding="utf-8")
+
+          tag = "${{ steps.tag.outputs.tag }}"
+          new_url = "${{ steps.sha.outputs.url }}"
+          new_sha = "${{ steps.sha.outputs.sha }}"
+
+          text2 = re.sub(
+              r'^\s*url\s+"https://github\.com/[^"]+/archive/refs/tags/v[^"]+\.tar\.gz"\s*$',
+              f'  url "{new_url}"',
+              text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          if text2 == text:
+              raise SystemExit("Could not update formula url")
+
+          text3 = re.sub(
+              r'^\s*sha256\s+"[0-9a-f]{64}"\s*$',
+              f'  sha256 "{new_sha}"',
+              text2,
+              count=1,
+              flags=re.MULTILINE,
+          )
+
+          formula_path.write_text(text3, encoding="utf-8")
+          print(f"Updated formula for {tag}")
+          PY
+
+      - name: Create bump branch and commit
+        working-directory: tap-repo
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          BRANCH="bump/ipb-${TAG}"
+          git checkout -B "$BRANCH"
+          git add "$FORMULA_PATH"
+          if git diff --cached --quiet; then
+            echo "No formula changes detected; skipping commit."
+            echo "skip_pr=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Bump ipb formula to ${TAG}"
+
+      - name: Push bump branch
+        if: env.skip_pr != 'true'
+        working-directory: tap-repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git push -u origin "$(git branch --show-current)"
+
+      - name: Open pull request in tap repository
+        if: env.skip_pr != 'true'
+        working-directory: tap-repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          BRANCH="$(git branch --show-current)"
+          EXISTING_PR=$(gh pr list \
+            --repo "$TAP_REPO" \
+            --base master \
+            --head "$BRANCH" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR already exists: #$EXISTING_PR"
+            exit 0
+          fi
+
+          PR_URL=$(gh pr create \
+            --repo "$TAP_REPO" \
+            --base master \
+            --head "$BRANCH" \
+            --title "Bump ipb formula to ${TAG}" \
+            --body "Automated formula update from ${GITHUB_REPOSITORY} release ${TAG}.\n\nSource release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}\nChangelog: https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md")
+
+          gh pr edit "$PR_URL" --repo "$TAP_REPO" --add-label "automated" || true
