@@ -95,8 +95,12 @@ Available sync flags:
 - `--limit N`
 - `--after YYYY-MM-DD`
 - `--skip-videos`
+- `--missing-created-at {skip|download}`
 - `--verbose`
 - `--db-path PATH`
+
+When running in a TTY, `ipb sync` shows live scan and download progress counters
+so large libraries provide visible progress during discovery.
 
 Destination resolution order for `ipb sync`:
 
@@ -204,3 +208,4 @@ make smoke
 - Launch notes template: `docs/launch.md`
 - Roadmap: `docs/roadmap.md`
 - Operations runbook: `docs/operations.md`
+- FAQ: `docs/faq.md`

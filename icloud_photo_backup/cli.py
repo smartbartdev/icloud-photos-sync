@@ -141,6 +141,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             verbose=args.verbose,
             after=args.after,
             skip_videos=args.skip_videos,
+            missing_created_at_strategy=args.missing_created_at,
             username=username,
             password=password,
             app_log_file=Path(str(cfg.get("log_file") or log_file_path())).expanduser(),
@@ -386,6 +387,15 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--limit", type=int, default=None)
     sync_parser.add_argument("--after", type=parse_after_date, default=None)
     sync_parser.add_argument("--skip-videos", action="store_true")
+    sync_parser.add_argument(
+        "--missing-created-at",
+        choices=("skip", "download"),
+        default="skip",
+        help=(
+            "How to handle assets with missing created_at when using cursor/--after "
+            "(default: skip)"
+        ),
+    )
     sync_parser.add_argument("--verbose", action="store_true")
     sync_parser.add_argument("--db-path", type=Path, default=None)
     sync_parser.set_defaults(func=cmd_sync)

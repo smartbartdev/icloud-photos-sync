@@ -43,6 +43,16 @@ def test_live_progress_downloaded_bytes_do_not_decrease(monkeypatch) -> None:
     assert "Downloaded: 1.0 KB" not in fake_stdout.buffer
 
 
+def test_live_scan_progress_renders_when_tty(monkeypatch) -> None:
+    fake_stdout = _FakeStdout(tty=True)
+    monkeypatch.setattr(sync.sys, "stdout", fake_stdout)
+
+    progress = sync.LiveScanProgress(enabled=True)
+    progress.render(scanned=10, matched=3, cursor=None, force=True)
+
+    assert "Scanning: 10 seen / 3 candidates" in fake_stdout.buffer
+
+
 def test_effective_after_datetime_prefers_user_after_date() -> None:
     result = sync.effective_after_datetime(
         dt.date(2026, 3, 1),
@@ -101,6 +111,41 @@ def test_iter_assets_respects_after_datetime() -> None:
         )
     )
     assert [asset.filename for asset in result] == ["new.jpg"]
+
+
+def test_iter_assets_skips_missing_created_at_by_default() -> None:
+    assets = [
+        _FakeAsset(dt.datetime(2026, 3, 1, 12, 0, 0), "dated.jpg"),
+        _FakeAsset(None, "unknown.jpg"),  # type: ignore[arg-type]
+    ]
+    api = _FakeApi(_FakeAlbum(assets, "ASCENDING"))
+
+    result = list(
+        sync.iter_assets(
+            api,
+            after=dt.datetime(2026, 3, 1, 0, 0, 0),
+            skip_videos=False,
+        )
+    )
+    assert [asset.filename for asset in result] == ["dated.jpg"]
+
+
+def test_iter_assets_can_include_missing_created_at_with_flag() -> None:
+    assets = [
+        _FakeAsset(dt.datetime(2026, 3, 1, 12, 0, 0), "dated.jpg"),
+        _FakeAsset(None, "unknown.jpg"),  # type: ignore[arg-type]
+    ]
+    api = _FakeApi(_FakeAlbum(assets, "ASCENDING"))
+
+    result = list(
+        sync.iter_assets(
+            api,
+            after=dt.datetime(2026, 3, 1, 0, 0, 0),
+            skip_videos=False,
+            include_missing_created_at=True,
+        )
+    )
+    assert [asset.filename for asset in result] == ["dated.jpg", "unknown.jpg"]
 
 
 def test_iter_assets_breaks_early_for_descending_album() -> None:

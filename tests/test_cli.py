@@ -15,6 +15,7 @@ def _sync_args(tmp_path: Path) -> argparse.Namespace:
         limit=None,
         after=None,
         skip_videos=False,
+        missing_created_at="skip",
         verbose=False,
     )
 
@@ -100,6 +101,7 @@ def test_cmd_sync_passes_resolved_destination(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr(cli, "run_sync", _run_sync)
     assert cli.cmd_sync(args) == 0
     assert captured["target_dir"] == expected_destination
+    assert captured["missing_created_at_strategy"] == "skip"
 
 
 def test_cmd_status_reads_db_meta_and_counts(tmp_path: Path, monkeypatch, capsys) -> None:

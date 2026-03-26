@@ -6,7 +6,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from .auth import login_icloud
 from .db import (
@@ -111,6 +111,66 @@ class LiveSyncProgress:
             self._line_len = 0
 
 
+class LiveScanProgress:
+    """Render single-line scan progress while iterating assets."""
+
+    def __init__(self, *, enabled: bool) -> None:
+        self.enabled = enabled and sys.stdout.isatty()
+        self._frame_index = 0
+        self._line_len = 0
+        self._started_at = time.monotonic()
+        self._last_render_at = 0.0
+
+    def render(
+        self,
+        *,
+        scanned: int,
+        matched: int,
+        cursor: Optional[dt.datetime],
+        force: bool = False,
+    ) -> None:
+        """Render scanning status, throttled unless forced."""
+        if not self.enabled:
+            return
+
+        now = time.monotonic()
+        if not force and (now - self._last_render_at) < 0.2:
+            return
+        self._last_render_at = now
+
+        elapsed_seconds = max(now - self._started_at, 0.001)
+        assets_per_second = scanned / elapsed_seconds
+        spinner = SPINNER_FRAMES[self._frame_index % len(SPINNER_FRAMES)]
+        self._frame_index += 1
+
+        cursor_text = cursor.isoformat() if cursor is not None else "none"
+        line = (
+            f"[{spinner}] Scanning: {scanned} seen / {matched} candidates "
+            f"| Cursor: {cursor_text} | Rate: {assets_per_second:.1f} assets/s"
+        )
+        padding = " " * max(self._line_len - len(line), 0)
+        sys.stdout.write(f"\r{line}{padding}")
+        sys.stdout.flush()
+        self._line_len = len(line)
+
+    def clear_line(self) -> None:
+        """Clear active scan line before other output."""
+        if not self.enabled or self._line_len == 0:
+            return
+        sys.stdout.write(f"\r{' ' * self._line_len}\r")
+        sys.stdout.flush()
+        self._line_len = 0
+
+    def finish(self) -> None:
+        """End scan renderer and move to next line."""
+        if not self.enabled:
+            return
+        if self._line_len > 0:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._line_len = 0
+
+
 def get_asset_id(asset: Any) -> Optional[str]:
     """Extract stable unique id from asset metadata."""
     for field in ("id", "asset_id", "uuid", "guid"):
@@ -193,6 +253,8 @@ def iter_assets(
     api: Any,
     after: Optional[dt.datetime],
     skip_videos: bool,
+    include_missing_created_at: bool = False,
+    on_scan: Optional[Callable[[int, int], None]] = None,
 ) -> Iterable[Any]:
     """Yield assets from iCloud Photos with optional filtering."""
     photos = getattr(api, "photos", None)
@@ -201,21 +263,35 @@ def iter_assets(
 
     album = photos.all
     descending = album_is_descending(album)
+    scanned_count = 0
+    matched_count = 0
+
     for asset in album:
+        scanned_count += 1
         created_at = parse_created_at(getattr(asset, "created", None))
 
         if after is not None:
             if created_at is None:
-                continue
-            if created_at < after:
-                if descending:
+                if not include_missing_created_at:
+                    if on_scan is not None:
+                        on_scan(scanned_count, matched_count)
+                    continue
+            elif created_at < after:
+                if on_scan is not None:
+                    on_scan(scanned_count, matched_count)
+                if descending and not include_missing_created_at:
                     break
                 continue
 
         filename = get_asset_filename(asset)
         if skip_videos and is_video_asset(asset, filename):
+            if on_scan is not None:
+                on_scan(scanned_count, matched_count)
             continue
 
+        matched_count += 1
+        if on_scan is not None:
+            on_scan(scanned_count, matched_count)
         yield asset
 
 
@@ -315,6 +391,7 @@ def run_sync(
     verbose: bool,
     after: Optional[dt.date],
     skip_videos: bool,
+    missing_created_at_strategy: str,
     username: str,
     password: Optional[str],
     app_log_file: Optional[Path] = None,
@@ -345,7 +422,10 @@ def run_sync(
     downloaded_photos = 0
     downloaded_videos = 0
     progress = LiveSyncProgress(enabled=not dry_run)
+    scan_progress = LiveScanProgress(enabled=not dry_run)
     latest_created_at_downloaded: Optional[dt.datetime] = None
+    scanned_assets = 0
+    matched_assets = 0
 
     try:
         if not dry_run:
@@ -356,14 +436,37 @@ def run_sync(
             stored_cursor = get_latest_downloaded_created_at(conn)
 
         scan_after = effective_after_datetime(after, stored_cursor)
+        include_missing_created_at = missing_created_at_strategy == "download"
         if scan_after is not None:
             logger.info(
                 "Using incremental timestamp cursor: %s",
                 scan_after.isoformat(),
             )
+            if include_missing_created_at:
+                logger.info(
+                    "Including assets with missing created_at during cursor scan."
+                )
 
         logger.info("\nScanning iCloud Photos...")
-        for asset in iter_assets(api, after=scan_after, skip_videos=skip_videos):
+
+        def on_scan(scanned: int, matched: int) -> None:
+            nonlocal scanned_assets, matched_assets
+            scanned_assets = scanned
+            matched_assets = matched
+            scan_progress.render(
+                scanned=scanned_assets,
+                matched=matched_assets,
+                cursor=scan_after,
+            )
+
+        for asset in iter_assets(
+            api,
+            after=scan_after,
+            skip_videos=skip_videos,
+            include_missing_created_at=include_missing_created_at,
+            on_scan=on_scan,
+        ):
+            scan_progress.clear_line()
             if limit is not None and processed >= limit:
                 break
 
@@ -487,13 +590,22 @@ def run_sync(
                 conn,
                 "last_downloaded_created_at",
                 latest_created_at_downloaded.isoformat(),
-            )
+                )
 
     finally:
+        scan_progress.render(
+            scanned=scanned_assets,
+            matched=matched_assets,
+            cursor=scan_after if "scan_after" in locals() else None,
+            force=True,
+        )
+        scan_progress.finish()
         progress.finish()
         conn.close()
 
     logger.info("\nDone.")
+    logger.info("Scanned assets: %s", scanned_assets)
+    logger.info("Candidate assets: %s", matched_assets)
     logger.info("Downloaded: %s", downloaded_count)
     logger.info("Skipped: %s", skipped_count)
     logger.info("Failed: %s", failed_count)
