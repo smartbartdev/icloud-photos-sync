@@ -56,7 +56,6 @@ jobs:
       - name: Update formula source and hash
         run: |
           python3 - <<'PY'
-          import re
           from pathlib import Path
 
           formula_path = Path("tap-repo") / "Formula" / "ipb.rb"
@@ -66,25 +65,25 @@ jobs:
           new_url = "${{ steps.sha.outputs.url }}"
           new_sha = "${{ steps.sha.outputs.sha }}"
 
-          text2 = re.sub(
-              r'^\s*url\s+"https://github\.com/[^"]+/archive/refs/tags/v[^"]+\.tar\.gz"\s*$',
-              f'  url "{new_url}"',
-              text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if text2 == text:
-              raise SystemExit("Could not update formula url")
+          lines = text.splitlines()
+          url_updated = False
+          sha_updated = False
+          for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not url_updated and stripped.startswith('url "'):
+              lines[i] = f'  url "{new_url}"'
+              url_updated = True
+              continue
+            if not sha_updated and stripped.startswith('sha256 "'):
+              lines[i] = f'  sha256 "{new_sha}"'
+              sha_updated = True
 
-          text3 = re.sub(
-              r'^\s*sha256\s+"[0-9a-f]{64}"\s*$',
-              f'  sha256 "{new_sha}"',
-              text2,
-              count=1,
-              flags=re.MULTILINE,
-          )
+          if not url_updated:
+            raise SystemExit("Could not update formula url")
+          if not sha_updated:
+            raise SystemExit("Could not update formula sha256")
 
-          formula_path.write_text(text3, encoding="utf-8")
+          formula_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           print(f"Updated formula for {tag}")
           PY
 
