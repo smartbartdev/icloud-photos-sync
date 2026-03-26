@@ -129,6 +129,7 @@ jobs:
             --jq '.[0].number')
           if [ -n "$EXISTING_PR" ]; then
             echo "PR already exists: #$EXISTING_PR"
+            echo "tap_pr_url=https://github.com/${TAP_REPO}/pull/${EXISTING_PR}" >> "$GITHUB_ENV"
             exit 0
           fi
 
@@ -139,4 +140,23 @@ jobs:
             --title "Bump ipb formula to ${TAG}" \
             --body "Automated formula update from ${GITHUB_REPOSITORY} release ${TAG}.\n\nSource release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}\nChangelog: https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md")
 
+          echo "tap_pr_url=${PR_URL}" >> "$GITHUB_ENV"
+
           gh pr edit "$PR_URL" --repo "$TAP_REPO" --add-label "automated" || true
+
+      - name: Publish workflow summary
+        run: |
+          {
+            echo "## Homebrew Bump Result"
+            echo ""
+            echo "- Tag: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- Source URL: \`${{ steps.sha.outputs.url }}\`"
+            echo "- Source SHA256: \`${{ steps.sha.outputs.sha }}\`"
+            if [ "${{ env.skip_pr }}" = "true" ]; then
+              echo "- Result: no formula change detected"
+            elif [ -n "${{ env.tap_pr_url }}" ]; then
+              echo "- Tap PR: ${{ env.tap_pr_url }}"
+            else
+              echo "- Result: completed without PR URL"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
