@@ -184,3 +184,61 @@ def test_main_routes_sync_subcommand(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(cli.sys, "argv", ["ipb", "sync", str(tmp_path), "--dry-run"])
     assert cli.main() == 0
     assert called["value"] is True
+
+
+def test_cmd_cursor_rebuild_sets_meta_from_existing_rows(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    destination = tmp_path / "dest"
+    destination.mkdir(parents=True, exist_ok=True)
+    db_path = destination / ".ipb.sqlite3"
+    conn = init_db(db_path)
+    try:
+        mark_downloaded(
+            conn,
+            asset_id="id-1",
+            filename="IMG_1.HEIC",
+            local_path=destination / "2026" / "01" / "IMG_1.HEIC",
+            created_at=dt.datetime(2026, 1, 2, 3, 4, 5),
+            file_size=20,
+            media_type="photo",
+        )
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda: {"default_destination": str(destination), "db_name": ".ipb.sqlite3"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_destination",
+        lambda cli_destination, default_destination: destination,
+    )
+
+    args = argparse.Namespace(destination=None)
+    assert cli.cmd_cursor_rebuild(args) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "Rebuilt cursor: last_downloaded_created_at=2026-01-02T03:04:05" in out
+
+
+def test_cmd_cursor_rebuild_handles_missing_db(tmp_path: Path, monkeypatch) -> None:
+    destination = tmp_path / "dest"
+    destination.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda: {"default_destination": str(destination), "db_name": ".ipb.sqlite3"},
+    )
+    monkeypatch.setattr(
+        cli,
+        "resolve_destination",
+        lambda cli_destination, default_destination: destination,
+    )
+
+    args = argparse.Namespace(destination=None)
+    assert cli.cmd_cursor_rebuild(args) == cli.EXIT_STORAGE

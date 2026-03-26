@@ -19,7 +19,13 @@ from .config import (
     save_config,
     set_credentials,
 )
-from .db import get_downloaded_count, get_meta, init_db
+from .db import (
+    get_downloaded_count,
+    get_latest_downloaded_created_at,
+    get_meta,
+    init_db,
+    set_meta,
+)
 from .errors import AuthError, ConfigError, StorageError
 from .paths import (
     DEFAULT_DB_NAME,
@@ -311,11 +317,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     db_path = destination / db_name
 
     last_sync = None
+    last_downloaded_created_at = None
     total_downloaded = 0
     if db_path.exists():
         conn = init_db(db_path)
         try:
             last_sync = get_meta(conn, "last_sync_at")
+            last_downloaded_created_at = get_meta(conn, "last_downloaded_created_at")
+            if last_downloaded_created_at is None:
+                last_downloaded_created_at = get_latest_downloaded_created_at(conn)
             total_downloaded = get_downloaded_count(conn)
         finally:
             conn.close()
@@ -324,8 +334,42 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"Default destination: {cfg.get('default_destination')}")
     print(f"DB path: {db_path}")
     print(f"Last sync timestamp: {last_sync}")
+    print(f"Last downloaded created_at: {last_downloaded_created_at}")
     print(f"Total downloaded count: {total_downloaded}")
     return EXIT_OK
+
+
+def cmd_cursor_rebuild(args: argparse.Namespace) -> int:
+    """Rebuild incremental cursor from existing downloaded assets."""
+    try:
+        cfg = load_config()
+    except FileNotFoundError:
+        print("Config error: config not found. Run: ipb init", file=sys.stderr)
+        return EXIT_CONFIG
+    except Exception as exc:  # noqa: BLE001
+        print(f"Config error: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    destination = resolve_destination(args.destination, cfg.get("default_destination"))
+    db_name = str(cfg.get("db_name") or DEFAULT_DB_NAME)
+    db_path = destination / db_name
+
+    if not db_path.exists():
+        print(f"Storage error: database not found at {db_path}", file=sys.stderr)
+        return EXIT_STORAGE
+
+    conn = init_db(db_path)
+    try:
+        latest_created_at = get_latest_downloaded_created_at(conn)
+        if latest_created_at is None:
+            print("No downloaded assets with created_at found; cursor not updated.")
+            return EXIT_OK
+
+        set_meta(conn, "last_downloaded_created_at", latest_created_at)
+        print(f"Rebuilt cursor: last_downloaded_created_at={latest_created_at}")
+        return EXIT_OK
+    finally:
+        conn.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -363,6 +407,20 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="Show sync status")
     status_parser.add_argument("destination", nargs="?", type=Path, help="Destination override")
     status_parser.set_defaults(func=cmd_status)
+
+    cursor_parser = subparsers.add_parser("cursor", help="Cursor utilities")
+    cursor_sub = cursor_parser.add_subparsers(dest="cursor_command", required=True)
+    cursor_rebuild = cursor_sub.add_parser(
+        "rebuild",
+        help="Rebuild incremental cursor from database",
+    )
+    cursor_rebuild.add_argument(
+        "destination",
+        nargs="?",
+        type=Path,
+        help="Destination override",
+    )
+    cursor_rebuild.set_defaults(func=cmd_cursor_rebuild)
 
     return parser
 

@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from .auth import login_icloud
-from .db import ensure_schema, init_db, is_downloaded, mark_downloaded, set_meta
+from .db import (
+    ensure_schema,
+    get_latest_downloaded_created_at,
+    get_meta,
+    init_db,
+    is_downloaded,
+    mark_downloaded,
+    set_meta,
+)
 from .logging_utils import setup_logging
 from .paths import build_output_dir, log_file_path, parse_created_at, unique_path, validate_target_dir
 
@@ -151,18 +159,57 @@ def detect_media_type(asset: Any, filename: Optional[str]) -> str:
     return "photo"
 
 
-def iter_assets(api: Any, after: Optional[dt.date], skip_videos: bool) -> Iterable[Any]:
+def parse_meta_datetime(value: Optional[str]) -> Optional[dt.datetime]:
+    """Parse ISO datetime stored in sync metadata."""
+    if not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def effective_after_datetime(
+    user_after: Optional[dt.date],
+    stored_cursor: Optional[str],
+) -> Optional[dt.datetime]:
+    """Resolve the effective lower-bound datetime for scanning assets."""
+    if user_after is not None:
+        return dt.datetime.combine(user_after, dt.time.min)
+    return parse_meta_datetime(stored_cursor)
+
+
+def album_is_descending(album: Any) -> bool:
+    """Return True when album iteration direction is descending."""
+    direction = getattr(album, "_direction", None)
+    if direction is None:
+        return False
+
+    raw_value = getattr(direction, "value", direction)
+    return str(raw_value).upper() == "DESCENDING"
+
+
+def iter_assets(
+    api: Any,
+    after: Optional[dt.datetime],
+    skip_videos: bool,
+) -> Iterable[Any]:
     """Yield assets from iCloud Photos with optional filtering."""
     photos = getattr(api, "photos", None)
     if photos is None:
         raise RuntimeError("iCloud Photos is unavailable for this account.")
 
     album = photos.all
+    descending = album_is_descending(album)
     for asset in album:
         created_at = parse_created_at(getattr(asset, "created", None))
 
         if after is not None:
-            if created_at is None or created_at.date() < after:
+            if created_at is None:
+                continue
+            if created_at < after:
+                if descending:
+                    break
                 continue
 
         filename = get_asset_filename(asset)
@@ -298,13 +345,25 @@ def run_sync(
     downloaded_photos = 0
     downloaded_videos = 0
     progress = LiveSyncProgress(enabled=not dry_run)
+    latest_created_at_downloaded: Optional[dt.datetime] = None
 
     try:
         if not dry_run:
             cleanup_stale_parts(target_dir, logger)
 
+        stored_cursor = get_meta(conn, "last_downloaded_created_at")
+        if stored_cursor is None:
+            stored_cursor = get_latest_downloaded_created_at(conn)
+
+        scan_after = effective_after_datetime(after, stored_cursor)
+        if scan_after is not None:
+            logger.info(
+                "Using incremental timestamp cursor: %s",
+                scan_after.isoformat(),
+            )
+
         logger.info("\nScanning iCloud Photos...")
-        for asset in iter_assets(api, after=after, skip_videos=skip_videos):
+        for asset in iter_assets(api, after=scan_after, skip_videos=skip_videos):
             if limit is not None and processed >= limit:
                 break
 
@@ -376,6 +435,14 @@ def run_sync(
                     status="downloaded",
                 )
                 downloaded_count += 1
+                if created_at is not None:
+                    if latest_created_at_downloaded is None:
+                        latest_created_at_downloaded = created_at
+                    else:
+                        latest_created_at_downloaded = max(
+                            latest_created_at_downloaded,
+                            created_at,
+                        )
                 downloaded_bytes += size
                 if media_type == "video":
                     downloaded_videos += 1
@@ -415,6 +482,12 @@ def run_sync(
         set_meta(conn, "last_sync_downloaded", str(downloaded_count))
         set_meta(conn, "last_sync_skipped", str(skipped_count))
         set_meta(conn, "last_sync_failed", str(failed_count))
+        if latest_created_at_downloaded is not None:
+            set_meta(
+                conn,
+                "last_downloaded_created_at",
+                latest_created_at_downloaded.isoformat(),
+            )
 
     finally:
         progress.finish()

@@ -64,6 +64,7 @@ ipb sync
 - `ipb login` - update credentials
 - `ipb logout` - clear credentials and session files
 - `ipb status [DESTINATION]` - print config and sync status
+- `ipb cursor rebuild [DESTINATION]` - rebuild incremental cursor from existing DB rows
 
 ## Sync options
 
@@ -109,6 +110,17 @@ Tables:
 
 `downloaded_assets` uses iCloud asset ID as the primary key for deduplication.
 Rows are inserted only after successful final file write.
+
+`sync_meta` stores run metadata, including `last_downloaded_created_at`. On later
+sync runs, `ipb` uses that timestamp as an incremental cursor so it does not need
+to scan all historical assets every time.
+
+If you already have a large existing manifest and want to bootstrap/fix the cursor,
+run:
+
+```bash
+ipb cursor rebuild "/Volumes/MyExternalDrive/iCloud-backup"
+```
 
 ## Destination layout
 
