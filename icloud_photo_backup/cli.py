@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from .auth import load_pyicloud_module
 from .config import (
     clear_credentials,
     default_config,
@@ -296,11 +297,11 @@ def cmd_doctor(_: argparse.Namespace) -> int:
         cfg = default_config()
 
     try:
-        importlib.import_module("pyicloud")
-        _doctor_line(True, "pyicloud installed")
-    except Exception:
+        module = load_pyicloud_module()
+        _doctor_line(True, "pyicloud installed", module.__name__)
+    except Exception as exc:  # noqa: BLE001
         all_ok = False
-        _doctor_line(False, "pyicloud installed")
+        _doctor_line(False, "pyicloud installed", str(exc))
 
     try:
         sqlite3.connect(":memory:").close()

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.1] - 2026-04-06
+
+### Fixed
+
+- Improved iCloud client import compatibility by supporting both `pyicloud` and `pyicloud_ipd` module names.
+- Improved error messages when iCloud client loading fails, including Homebrew reinstall guidance.
+- Enhanced `ipb doctor` output with dependency diagnostic details for faster troubleshooting.
+
 ## [1.2.0] - 2026-04-06
 
 ### Added
