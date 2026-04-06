@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.2] - 2026-04-06
+
+### Improved
+
+- Added a fallback 2FA flow that can request a verification code from trusted devices when no push notification appears.
+- Added clearer terminal guidance for users authenticating from a new Mac while another trusted device is already signed in.
+
+### Fixed
+
+- Improved 2FA validation compatibility by using the best available verification method (`validate_2fa_code` or `validate_verification_code`).
+
 ## [1.2.1] - 2026-04-06
 
 ### Fixed
