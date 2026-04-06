@@ -20,6 +20,7 @@ Tips:
 - Ensure your system clock/timezone are correct.
 - Run `ipb login` again if credentials changed.
 - If no 2FA push appears, generate a verification code from another trusted Apple device and paste it into the terminal prompt.
+- If `ipb` reports that Apple returned no trusted devices for the session, keep the prompt open and enter a manually generated verification code.
 
 ## 3) My incremental sync still scans too much. How can I speed it up?
 

@@ -95,3 +95,52 @@ def test_login_icloud_2fa_invalid_device_selection_fails(monkeypatch) -> None:
         auth.login_icloud("me@example.com", "secret", logger)
 
     assert "out of range" in str(exc_info.value)
+
+
+def test_login_icloud_2fa_retries_until_valid_code(monkeypatch) -> None:
+    logger = logging.getLogger("test")
+
+    class _Api:
+        requires_2fa = True
+        is_trusted_session = True
+
+        def validate_2fa_code(self, code: str):
+            return code == "654321"
+
+    class _Module:
+        class PyiCloudService:  # noqa: D106
+            def __new__(cls, username: str, password: str):
+                return _Api()
+
+    monkeypatch.setattr(auth, "load_pyicloud_module", lambda: _Module())
+    inputs = iter(["111111", "654321"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    api = auth.login_icloud("me@example.com", "secret", logger)
+    assert isinstance(api, _Api)
+
+
+def test_login_icloud_2fa_reports_when_no_trusted_devices(monkeypatch, capsys) -> None:
+    logger = logging.getLogger("test")
+
+    class _Api:
+        requires_2fa = True
+        is_trusted_session = True
+        trusted_devices = []
+
+        def validate_2fa_code(self, code: str):
+            return code == "222222"
+
+    class _Module:
+        class PyiCloudService:  # noqa: D106
+            def __new__(cls, username: str, password: str):
+                return _Api()
+
+    monkeypatch.setattr(auth, "load_pyicloud_module", lambda: _Module())
+    inputs = iter(["", "222222"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    api = auth.login_icloud("me@example.com", "secret", logger)
+    assert isinstance(api, _Api)
+    out = capsys.readouterr().out
+    assert "Apple did not return trusted devices" in out
