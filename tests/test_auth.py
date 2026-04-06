@@ -39,3 +39,59 @@ def test_login_icloud_reports_brew_reinstall_hint(monkeypatch) -> None:
         auth.login_icloud("me@example.com", "secret", logger)
 
     assert "brew reinstall smartbartdev/tap/ipb" in str(exc_info.value)
+
+
+def test_login_icloud_2fa_can_request_code_from_trusted_device(monkeypatch) -> None:
+    logger = logging.getLogger("test")
+
+    class _Api:
+        requires_2fa = True
+        is_trusted_session = True
+        trusted_devices = [{"deviceName": "MacBook Pro", "id": "dev-1"}]
+
+        def send_verification_code(self, device):
+            return device["id"] == "dev-1"
+
+        def validate_verification_code(self, device, code: str):
+            return device["id"] == "dev-1" and code == "123456"
+
+    class _Module:
+        class PyiCloudService:  # noqa: D106
+            def __new__(cls, username: str, password: str):
+                return _Api()
+
+    monkeypatch.setattr(auth, "load_pyicloud_module", lambda: _Module())
+    inputs = iter(["", "1", "123456"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    api = auth.login_icloud("me@example.com", "secret", logger)
+    assert isinstance(api, _Api)
+
+
+def test_login_icloud_2fa_invalid_device_selection_fails(monkeypatch) -> None:
+    logger = logging.getLogger("test")
+
+    class _Api:
+        requires_2fa = True
+        is_trusted_session = True
+        trusted_devices = [{"deviceName": "MacBook Pro", "id": "dev-1"}]
+
+        def send_verification_code(self, device):
+            return True
+
+        def validate_verification_code(self, device, code: str):
+            return True
+
+    class _Module:
+        class PyiCloudService:  # noqa: D106
+            def __new__(cls, username: str, password: str):
+                return _Api()
+
+    monkeypatch.setattr(auth, "load_pyicloud_module", lambda: _Module())
+    inputs = iter(["", "9"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    with pytest.raises(AuthError) as exc_info:
+        auth.login_icloud("me@example.com", "secret", logger)
+
+    assert "out of range" in str(exc_info.value)
