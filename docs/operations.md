@@ -28,7 +28,7 @@ If automation fails:
 ```bash
 git clone git@github.com:smartbartdev/homebrew-tap.git
 cd homebrew-tap
-./scripts/bump_ipb_formula.py --version 0.1.1 --sha256 <sha256>
+./scripts/bump_ipb_formula.py --version 1.2.0 --sha256 <sha256>
 ```
 
 2. Validate locally:

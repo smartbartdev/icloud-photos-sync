@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.0] - 2026-04-06
+
+### Added
+
+- Added `ipb restore [DESTINATION]` to restore local initialization against an existing backup directory.
+- Added restore flow documentation for users migrating to a new Mac while reusing an existing external-drive backup.
+
+### Changed
+
+- `ipb restore` now seeds `last_downloaded_created_at` from existing manifest rows when missing, so incremental sync can continue efficiently.
+
 ## [0.1.1] - 2026-03-26
 
 ### Added
