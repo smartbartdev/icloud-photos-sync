@@ -39,8 +39,13 @@ def _select_trusted_device(api: Any) -> Optional[dict[str, Any]]:
     trusted_devices = getattr(api, "trusted_devices", None)
     if not trusted_devices:
         print(
-            "Apple did not return trusted devices for this session. "
-            "Generate a verification code on another trusted Apple device "
+            "Apple did not return trusted devices for this session.\n"
+            "If you're not receiving 2FA prompts on your devices:\n"
+            "  1. Try logging in at https://appleid.apple.com in your web browser\n"
+            "  2. Complete the 2FA prompt there\n"
+            "  3. This establishes a trusted session\n"
+            "  4. Then retry this command\n\n"
+            "Or manually generate a verification code on a trusted Apple device "
             "and paste it here."
         )
         return None
@@ -119,9 +124,14 @@ def _run_2fa_flow(api: Any, logger: logging.Logger) -> None:
         print("Invalid 2FA code. Please try again.")
 
     raise AuthError(
-        "Unable to complete 2FA after multiple attempts. "
-        "If prompts are not shown automatically, generate a verification code "
-        "from a trusted Apple device and retry."
+        "Unable to complete 2FA after multiple attempts.\n\n"
+        "Troubleshooting:\n"
+        "  • Check that you're receiving 2FA prompts on your trusted devices\n"
+        "  • Try logging in at https://appleid.apple.com first to establish a trusted session\n"
+        "  • Ensure all devices have internet connectivity\n"
+        "  • If using a VPN (like Tailscale), try disabling it during authentication\n"
+        "  • Wait a few seconds after entering the code\n\n"
+        "For more help, see: https://github.com/smartbartdev/icloud-photos-sync/issues"
     )
 
 
