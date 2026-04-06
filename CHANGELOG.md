@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.3] - 2026-04-06
+
+### Fixed
+
+- Improved 2FA UX when Apple does not return trusted devices for the current session by printing explicit recovery guidance.
+- Improved 2FA retry behavior by allowing multiple verification attempts before failing.
+
+### Improved
+
+- Added clearer final error messaging with concrete fallback steps when 2FA cannot be completed.
+
 ## [1.2.2] - 2026-04-06
 
 ### Improved

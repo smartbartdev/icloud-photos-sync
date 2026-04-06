@@ -38,6 +38,11 @@ def _print_2fa_help() -> None:
 def _select_trusted_device(api: Any) -> Optional[dict[str, Any]]:
     trusted_devices = getattr(api, "trusted_devices", None)
     if not trusted_devices:
+        print(
+            "Apple did not return trusted devices for this session. "
+            "Generate a verification code on another trusted Apple device "
+            "and paste it here."
+        )
         return None
 
     print("No code yet? Request one from a trusted device:")
@@ -80,29 +85,44 @@ def _run_2fa_flow(api: Any, logger: logging.Logger) -> None:
     logger.info("Two-factor authentication required.")
     _print_2fa_help()
 
-    code = input("Enter the 2FA code (or press Enter for help): ").strip()
-    device = None
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        code = input("Enter the 2FA code (or press Enter for help): ").strip()
+        device = None
 
-    if not code:
-        device = _select_trusted_device(api)
-        if device is not None:
-            send_verification_code = getattr(api, "send_verification_code", None)
-            if not callable(send_verification_code):
-                raise AuthError("Unable to request a verification code for this account.")
-            try:
-                requested = bool(send_verification_code(device))
-            except Exception as exc:  # noqa: BLE001
-                raise AuthError(f"Failed requesting verification code: {exc}") from exc
-            if not requested:
-                raise AuthError("Failed requesting verification code from trusted device.")
+        if not code:
+            device = _select_trusted_device(api)
+            if device is not None:
+                send_verification_code = getattr(api, "send_verification_code", None)
+                if not callable(send_verification_code):
+                    raise AuthError("Unable to request a verification code for this account.")
+                try:
+                    requested = bool(send_verification_code(device))
+                except Exception as exc:  # noqa: BLE001
+                    raise AuthError(f"Failed requesting verification code: {exc}") from exc
+                if not requested:
+                    raise AuthError("Failed requesting verification code from trusted device.")
 
-        code = input("Enter the verification code: ").strip()
+            code = input("Enter the verification code: ").strip()
 
-    if not code:
-        raise AuthError("No 2FA code entered.")
+        if not code:
+            if attempt == max_attempts:
+                break
+            print("No code entered. Please try again.")
+            continue
 
-    if not _validate_with_best_method(api, code, device):
-        raise AuthError("Invalid 2FA code.")
+        if _validate_with_best_method(api, code, device):
+            return
+
+        if attempt == max_attempts:
+            break
+        print("Invalid 2FA code. Please try again.")
+
+    raise AuthError(
+        "Unable to complete 2FA after multiple attempts. "
+        "If prompts are not shown automatically, generate a verification code "
+        "from a trusted Apple device and retry."
+    )
 
 
 def login_icloud(username: str, password: Optional[str], logger: logging.Logger) -> Any:
