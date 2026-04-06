@@ -8,10 +8,13 @@ All notable changes to this project are documented in this file.
 
 - Improved 2FA UX when Apple does not return trusted devices for the current session by printing explicit recovery guidance.
 - Improved 2FA retry behavior by allowing multiple verification attempts before failing.
+- Added guidance for cases where 2FA push notifications aren't received (e.g., when using VPNs like Tailscale).
 
 ### Improved
 
 - Added clearer final error messaging with concrete fallback steps when 2FA cannot be completed.
+- Updated FAQ with troubleshooting steps for common 2FA issues including VPN interference and device notification problems.
+- Added web-based authentication workaround: users can now log into https://appleid.apple.com first to establish a trusted session.
 
 ## [1.2.2] - 2026-04-06
 

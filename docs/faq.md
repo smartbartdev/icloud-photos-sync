@@ -19,8 +19,12 @@ Tips:
 - Complete `ipb init` and store credentials correctly.
 - Ensure your system clock/timezone are correct.
 - Run `ipb login` again if credentials changed.
-- If no 2FA push appears, generate a verification code from another trusted Apple device and paste it into the terminal prompt.
-- If `ipb` reports that Apple returned no trusted devices for the session, keep the prompt open and enter a manually generated verification code.
+- If no 2FA push appears, try logging into https://appleid.apple.com in your web browser first to establish a trusted session, then retry `ipb sync`.
+- If using a VPN (like Tailscale), temporarily disconnect it during authentication—Apple may block 2FA for VPN connections for security reasons.
+- If you don't receive 2FA push notifications on your devices, check:
+  - All devices are connected to Wi-Fi or cellular (not just using the Mac)
+  - iCloud notifications are enabled in device settings
+  - Your Apple ID hasn't been restricted (check https://appleid.apple.com)
 
 ## 3) My incremental sync still scans too much. How can I speed it up?
 
