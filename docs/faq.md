@@ -75,3 +75,17 @@ ipb restore "/Volumes/MyExternalDrive/iCloud-backup"
 ```
 
 This restores local initialization against that folder so you can continue with `ipb sync`.
+
+## 9) `ipb doctor` reports `pyicloud installed` as FAIL after Homebrew install
+
+Try reinstalling the formula to repair the embedded virtualenv:
+
+```bash
+brew reinstall smartbartdev/tap/ipb
+```
+
+Then rerun:
+
+```bash
+ipb doctor
+```

@@ -165,7 +165,10 @@ def test_cmd_doctor_reports_ok_when_checks_pass(tmp_path: Path, monkeypatch, cap
 
     def _import_module(name: str):
         if name == "pyicloud":
-            return object()
+            class _Module:
+                __name__ = "pyicloud"
+
+            return _Module()
         raise ImportError(name)
 
     monkeypatch.setattr(cli.importlib, "import_module", _import_module)

@@ -3,9 +3,29 @@ from __future__ import annotations
 import getpass
 import importlib
 import logging
+from types import ModuleType
 from typing import Any, Optional
 
 from .errors import AuthError
+
+
+def load_pyicloud_module() -> ModuleType:
+    """Load a supported iCloud client module."""
+    candidates = ("pyicloud", "pyicloud_ipd")
+    errors: list[str] = []
+
+    for module_name in candidates:
+        try:
+            return importlib.import_module(module_name)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{module_name}: {exc}")
+
+    details = "; ".join(errors)
+    raise AuthError(
+        "No supported iCloud client module found. "
+        "Install/repair dependency: pip install pyicloud. "
+        f"Details: {details}"
+    )
 
 
 def login_icloud(username: str, password: Optional[str], logger: logging.Logger) -> Any:
@@ -19,10 +39,13 @@ def login_icloud(username: str, password: Optional[str], logger: logging.Logger)
     logger.info("Logging into iCloud...")
 
     try:
-        pyicloud_module = importlib.import_module("pyicloud")
+        pyicloud_module = load_pyicloud_module()
         PyiCloudService = getattr(pyicloud_module, "PyiCloudService")
     except Exception as exc:  # pragma: no cover - import failure path
-        raise AuthError("pyicloud is not installed. Run: pip install -r requirements.txt") from exc
+        raise AuthError(
+            "Unable to load iCloud client. "
+            "If installed via Homebrew, run: brew reinstall smartbartdev/tap/ipb"
+        ) from exc
 
     try:
         api = PyiCloudService(username, password)
