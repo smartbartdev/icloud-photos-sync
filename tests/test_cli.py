@@ -188,6 +188,19 @@ def test_main_routes_sync_subcommand(tmp_path: Path, monkeypatch) -> None:
     assert called["value"] is True
 
 
+def test_main_routes_restore_subcommand(tmp_path: Path, monkeypatch) -> None:
+    called = {"value": False}
+
+    def _cmd_restore(args: argparse.Namespace) -> int:
+        called["value"] = True
+        return 0
+
+    monkeypatch.setattr(cli, "cmd_restore", _cmd_restore)
+    monkeypatch.setattr(cli.sys, "argv", ["ipb", "restore", str(tmp_path)])
+    assert cli.main() == 0
+    assert called["value"] is True
+
+
 def test_cmd_cursor_rebuild_sets_meta_from_existing_rows(
     tmp_path: Path,
     monkeypatch,
@@ -244,3 +257,75 @@ def test_cmd_cursor_rebuild_handles_missing_db(tmp_path: Path, monkeypatch) -> N
 
     args = argparse.Namespace(destination=None)
     assert cli.cmd_cursor_rebuild(args) == cli.EXIT_STORAGE
+
+
+def test_cmd_restore_bootstraps_config_and_cursor(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    destination = tmp_path / "dest"
+    destination.mkdir(parents=True, exist_ok=True)
+    db_path = destination / ".ipb.sqlite3"
+    conn = init_db(db_path)
+    try:
+        mark_downloaded(
+            conn,
+            asset_id="id-restore-1",
+            filename="IMG_1234.HEIC",
+            local_path=destination / "2026" / "02" / "IMG_1234.HEIC",
+            created_at=dt.datetime(2026, 2, 3, 4, 5, 6),
+            file_size=100,
+            media_type="photo",
+        )
+    finally:
+        conn.close()
+
+    config_path = tmp_path / "config.json"
+    saved_cfg: dict = {}
+
+    monkeypatch.setattr(cli, "config_file_path", lambda: config_path)
+    monkeypatch.setattr(cli, "ensure_config_layout", lambda: None)
+    monkeypatch.setattr(cli, "validate_target_dir", lambda destination: None)
+    monkeypatch.setattr(
+        cli,
+        "save_config",
+        lambda cfg: saved_cfg.update(cfg) or config_path,
+    )
+    monkeypatch.setattr(
+        cli,
+        "set_credentials",
+        lambda cfg, *, username, password, use_keychain: {
+            **cfg,
+            "icloud_username": username,
+            "icloud_password": password,
+            "use_keychain": use_keychain,
+        },
+    )
+
+    inputs = iter(["me@example.com", "y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt="": "secret")
+
+    args = argparse.Namespace(destination=destination)
+    assert cli.cmd_restore(args) == cli.EXIT_OK
+
+    assert saved_cfg["default_destination"] == str(destination)
+    assert saved_cfg["icloud_username"] == "me@example.com"
+    out = capsys.readouterr().out
+    assert "Restored cursor: last_downloaded_created_at=2026-02-03T04:05:06" in out
+
+
+def test_cmd_restore_fails_when_backup_manifest_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    destination = tmp_path / "dest"
+    destination.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(cli, "config_file_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(cli, "ensure_config_layout", lambda: None)
+    monkeypatch.setattr(cli, "validate_target_dir", lambda destination: None)
+
+    args = argparse.Namespace(destination=destination)
+    assert cli.cmd_restore(args) == cli.EXIT_STORAGE
