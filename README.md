@@ -75,6 +75,7 @@ ipb sync
 ## Commands
 
 - `ipb init` - interactive setup
+- `ipb restore [DESTINATION]` - restore local initialization from an existing backup destination
 - `ipb sync [DESTINATION]` - incremental sync
 - `ipb config show` - print config with secret redaction
 - `ipb doctor` - local checks (config, sqlite, pyicloud, destination)
@@ -107,6 +108,16 @@ Destination resolution order for `ipb sync`:
 1. CLI `DESTINATION`
 2. `default_destination` in config
 3. current working directory
+
+## Restoring setup on a new Mac
+
+If you already have an existing backup folder (for example on an external drive), you can restore local initialization on a new machine:
+
+```bash
+ipb restore "/Volumes/MyExternalDrive/iCloud-backup"
+```
+
+This updates your local config default destination and restores cursor metadata from the existing backup DB when needed.
 
 ## Authentication and 2FA
 

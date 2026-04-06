@@ -65,3 +65,13 @@ ipb sync "/Volumes/MyExternalDrive/iCloud-backup" --dry-run --limit 20 --verbose
 ```
 
 If output looks right, run full sync without `--dry-run`.
+
+## 8) I got a new Mac. Can I reuse my existing backup folder?
+
+Yes. Point `ipb restore` at your existing destination:
+
+```bash
+ipb restore "/Volumes/MyExternalDrive/iCloud-backup"
+```
+
+This restores local initialization against that folder so you can continue with `ipb sync`.

@@ -102,6 +102,86 @@ def cmd_init(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_restore(args: argparse.Namespace) -> int:
+    """Restore ipb initialization from an existing backup destination."""
+    try:
+        ensure_config_layout()
+        cfg = load_config() if config_file_path().exists() else default_config()
+
+        destination = (
+            args.destination.expanduser().resolve()
+            if args.destination
+            else Path.cwd().resolve()
+        )
+        if not destination.exists() or not destination.is_dir():
+            print(
+                f"Storage error: backup directory not found: {destination}",
+                file=sys.stderr,
+            )
+            return EXIT_STORAGE
+
+        validate_target_dir(destination)
+        db_name = str(cfg.get("db_name") or DEFAULT_DB_NAME)
+        db_path = destination / db_name
+        if not db_path.exists():
+            print(
+                f"Storage error: ipb manifest not found at {db_path}",
+                file=sys.stderr,
+            )
+            return EXIT_STORAGE
+
+        cfg["default_destination"] = str(destination)
+
+        if not str(cfg.get("icloud_username") or ""):
+            username = input("iCloud username: ").strip()
+            if not username:
+                print("Config error: username is required", file=sys.stderr)
+                return EXIT_CONFIG
+
+            password = getpass.getpass("iCloud password: ")
+            if not password:
+                print("Config error: password is required", file=sys.stderr)
+                return EXIT_CONFIG
+
+            use_keychain_raw = input("Use macOS keychain? [Y/n]: ").strip().lower()
+            use_keychain = use_keychain_raw in ("", "y", "yes")
+            cfg = set_credentials(
+                cfg,
+                username=username,
+                password=password,
+                use_keychain=use_keychain,
+            )
+
+        save_config(cfg)
+
+        conn = init_db(db_path)
+        try:
+            current_cursor = get_meta(conn, "last_downloaded_created_at")
+            if current_cursor is None:
+                latest_created_at = get_latest_downloaded_created_at(conn)
+                if latest_created_at is not None:
+                    set_meta(conn, "last_downloaded_created_at", latest_created_at)
+                    print(
+                        "Restored cursor: "
+                        f"last_downloaded_created_at={latest_created_at}"
+                    )
+        finally:
+            conn.close()
+
+        print(f"Restored backup initialization for {destination}")
+        print(f"Config saved at {config_file_path()}")
+        return EXIT_OK
+    except ConfigError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+    except StorageError as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        return EXIT_STORAGE
+    except Exception as exc:  # noqa: BLE001
+        print(f"Runtime error: {exc}", file=sys.stderr)
+        return EXIT_RUNTIME
+
+
 def _load_required_config() -> dict:
     try:
         cfg = load_config()
@@ -380,6 +460,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser("init", help="Interactive setup")
     init_parser.set_defaults(func=cmd_init)
+
+    restore_parser = subparsers.add_parser(
+        "restore",
+        help="Restore initialization from existing backup",
+    )
+    restore_parser.add_argument(
+        "destination",
+        nargs="?",
+        type=Path,
+        help="Existing backup destination (defaults to cwd)",
+    )
+    restore_parser.set_defaults(func=cmd_restore)
 
     sync_parser = subparsers.add_parser("sync", help="Incremental sync")
     sync_parser.add_argument("destination", nargs="?", type=Path, help="Destination root")
