@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.4] - 2026-04-06
+
+### Fixed
+
+- Prevented incremental cursor updates from advancing to future `created_at` timestamps during sync runs.
+- Added a safeguard warning and kept cursor unchanged when a run only downloads assets with future timestamps.
+
+### Tests
+
+- Added regression tests for cursor behavior with future-dated assets.
+
 ## [1.2.3] - 2026-04-06
 
 ### Fixed

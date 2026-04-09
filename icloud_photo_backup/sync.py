@@ -424,6 +424,7 @@ def run_sync(
     progress = LiveSyncProgress(enabled=not dry_run)
     scan_progress = LiveScanProgress(enabled=not dry_run)
     latest_created_at_downloaded: Optional[dt.datetime] = None
+    saw_future_created_at = False
     scanned_assets = 0
     matched_assets = 0
 
@@ -539,7 +540,16 @@ def run_sync(
                 )
                 downloaded_count += 1
                 if created_at is not None:
-                    if latest_created_at_downloaded is None:
+                    now = dt.datetime.now(dt.timezone.utc)
+                    if created_at > now:
+                        saw_future_created_at = True
+                        logger.warning(
+                            "Skipping asset with future timestamp: %s > %s (%s)",
+                            created_at,
+                            now,
+                            filename,
+                        )
+                    elif latest_created_at_downloaded is None:
                         latest_created_at_downloaded = created_at
                     else:
                         latest_created_at_downloaded = max(
@@ -590,7 +600,12 @@ def run_sync(
                 conn,
                 "last_downloaded_created_at",
                 latest_created_at_downloaded.isoformat(),
-                )
+            )
+        elif downloaded_count > 0 and saw_future_created_at:
+            logger.warning(
+                "Cursor unchanged: downloaded assets included only future "
+                "created_at values in this run."
+            )
 
     finally:
         scan_progress.render(
