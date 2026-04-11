@@ -37,6 +37,13 @@ VIDEO_EXTENSIONS = {
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 
 
+def to_utc_datetime(value: dt.datetime) -> dt.datetime:
+    """Normalize datetimes to UTC for safe comparisons."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt.timezone.utc)
+    return value.astimezone(dt.timezone.utc)
+
+
 def format_bytes(num_bytes: int) -> str:
     """Return a human-readable byte size string."""
     if num_bytes < 1024:
@@ -262,25 +269,24 @@ def iter_assets(
         raise RuntimeError("iCloud Photos is unavailable for this account.")
 
     album = photos.all
-    descending = album_is_descending(album)
     scanned_count = 0
     matched_count = 0
+    after_utc = to_utc_datetime(after) if after is not None else None
 
     for asset in album:
         scanned_count += 1
         created_at = parse_created_at(getattr(asset, "created", None))
+        created_at_utc = to_utc_datetime(created_at) if created_at is not None else None
 
-        if after is not None:
-            if created_at is None:
+        if after_utc is not None:
+            if created_at_utc is None:
                 if not include_missing_created_at:
                     if on_scan is not None:
                         on_scan(scanned_count, matched_count)
                     continue
-            elif created_at < after:
+            elif created_at_utc < after_utc:
                 if on_scan is not None:
                     on_scan(scanned_count, matched_count)
-                if descending and not include_missing_created_at:
-                    break
                 continue
 
         filename = get_asset_filename(asset)
@@ -540,21 +546,22 @@ def run_sync(
                 )
                 downloaded_count += 1
                 if created_at is not None:
+                    created_at_utc = to_utc_datetime(created_at)
                     now = dt.datetime.now(dt.timezone.utc)
-                    if created_at > now:
+                    if created_at_utc > now:
                         saw_future_created_at = True
                         logger.warning(
                             "Skipping asset with future timestamp: %s > %s (%s)",
-                            created_at,
+                            created_at_utc,
                             now,
                             filename,
                         )
                     elif latest_created_at_downloaded is None:
-                        latest_created_at_downloaded = created_at
+                        latest_created_at_downloaded = created_at_utc
                     else:
                         latest_created_at_downloaded = max(
                             latest_created_at_downloaded,
-                            created_at,
+                            created_at_utc,
                         )
                 downloaded_bytes += size
                 if media_type == "video":
