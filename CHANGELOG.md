@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.5] - 2026-04-11
+
+### Fixed
+
+- Fixed incremental scan regression where descending album optimization could stop scanning too early and miss newer candidates.
+- Fixed datetime comparison errors when mixing naive (`--after YYYY-MM-DD`) and timezone-aware iCloud timestamps.
+
+### Tests
+
+- Added regression coverage for mixed timezone-aware/naive cursor comparisons and descending-order scan behavior.
+
 ## [1.2.4] - 2026-04-06
 
 ### Fixed

@@ -148,7 +148,7 @@ def test_iter_assets_can_include_missing_created_at_with_flag() -> None:
     assert [asset.filename for asset in result] == ["dated.jpg", "unknown.jpg"]
 
 
-def test_iter_assets_breaks_early_for_descending_album() -> None:
+def test_iter_assets_does_not_break_early_for_descending_album() -> None:
     assets = [
         _FakeAsset(dt.datetime(2026, 3, 2, 9, 0, 0), "recent.jpg"),
         _FakeAsset(dt.datetime(2026, 3, 1, 9, 0, 0), "older.jpg"),
@@ -163,4 +163,21 @@ def test_iter_assets_breaks_early_for_descending_album() -> None:
             skip_videos=False,
         )
     )
-    assert [asset.filename for asset in result] == ["recent.jpg"]
+    assert [asset.filename for asset in result] == ["recent.jpg", "should-not-be-reached.jpg"]
+
+
+def test_iter_assets_handles_mixed_timezone_awareness() -> None:
+    assets = [
+        _FakeAsset(dt.datetime(2026, 3, 2, 10, 0, 0, tzinfo=dt.timezone.utc), "new.jpg"),
+        _FakeAsset(dt.datetime(2026, 3, 1, 10, 0, 0, tzinfo=dt.timezone.utc), "old.jpg"),
+    ]
+    api = _FakeApi(_FakeAlbum(assets, "ASCENDING"))
+
+    result = list(
+        sync.iter_assets(
+            api,
+            after=dt.datetime(2026, 3, 2, 0, 0, 0),
+            skip_videos=False,
+        )
+    )
+    assert [asset.filename for asset in result] == ["new.jpg"]
